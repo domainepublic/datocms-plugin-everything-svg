@@ -17,6 +17,8 @@ export async function createSvgModel(apiToken: string, environment?: string) {
       api_key: SVG_MODEL_API_KEY,
       collection_appearance: 'table',
       singleton: false,
+    }, {
+      skip_menu_item_creation: true,
     })
 
     // Create the name field
