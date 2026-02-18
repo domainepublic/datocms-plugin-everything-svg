@@ -63,3 +63,19 @@
 .rawCode {
   white-space: pre-wrap;
 }
+
+.rawTextarea {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--spacing-s);
+  margin-bottom: var(--spacing-s);
+  resize: vertical;
+  min-height: 200px;
+}
+
+.rawActions {
+  display: flex;
+  gap: var(--spacing-s);
+  margin-top: var(--spacing-s);
+}
