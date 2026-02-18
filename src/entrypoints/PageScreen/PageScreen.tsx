@@ -14,6 +14,7 @@ import {
   updateSvgRecord,
   deleteSvgRecord,
   uploadSvgToMediaLibrary,
+  updateExistingUploadWithSvgContent,
 } from '../../lib/recordHelpers'
 
 import * as styles from './PageScreen.module.css'
@@ -135,7 +136,7 @@ export default function PageScreen({ ctx }: Props) {
     }
   }
 
-  /** Sync media_upload (admin preview) from svg_content for all records. Use after editing SVG content in the CMS. */
+  /** Sync media_upload (admin preview) from svg_content for all records. Updates existing uploads in place; creates new upload only when record has no media. */
   async function syncAllPreviews() {
     if (!pluginParameters.svgModelId || !currentUserAccessToken) {
       ctx.alert('SVG model not found. Please complete setup.')
@@ -147,25 +148,33 @@ export default function PageScreen({ ctx }: Props) {
       for (const record of svgRecords) {
         if (!record.svg_content || !isSvg(record.svg_content)) continue
         try {
-          const uploadId = await uploadSvgToMediaLibrary(
-            currentUserAccessToken,
-            record.svg_content,
-            record.name || 'untitled',
-            environment,
-          )
-          if (record.media_upload) {
-            await datoClient.uploads.destroy(record.media_upload.upload_id)
-          }
-          const updated = await updateSvgRecord(
-            currentUserAccessToken,
-            record.id,
-            { media_upload: { upload_id: uploadId } },
-          )
-          if (updated) {
-            setSvgRecords((prev) =>
-              prev.map((r) => (r.id === record.id ? updated : r)),
+          if (record.media_upload?.upload_id) {
+            await updateExistingUploadWithSvgContent(
+              currentUserAccessToken,
+              record.media_upload.upload_id,
+              record.svg_content,
+              record.name || 'untitled',
+              environment,
             )
             synced += 1
+          } else {
+            const uploadId = await uploadSvgToMediaLibrary(
+              currentUserAccessToken,
+              record.svg_content,
+              record.name || 'untitled',
+              environment,
+            )
+            const updated = await updateSvgRecord(
+              currentUserAccessToken,
+              record.id,
+              { media_upload: { upload_id: uploadId } },
+            )
+            if (updated) {
+              setSvgRecords((prev) =>
+                prev.map((r) => (r.id === record.id ? updated : r)),
+              )
+              synced += 1
+            }
           }
         } catch (err) {
           console.error(`Failed to sync preview for ${record.name}:`, err)
