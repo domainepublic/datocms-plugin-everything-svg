@@ -6,3 +6,8 @@
   margin-bottom: var(--spacing-l);
   height: 50px;
 }
+
+.syncHint {
+  margin-bottom: var(--spacing-m);
+  color: var(--light-body-color);
+}

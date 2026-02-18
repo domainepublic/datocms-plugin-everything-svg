@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { RenderPageCtx } from 'datocms-plugin-sdk'
-import { Canvas, Button, Spinner, SwitchField } from 'datocms-react-ui'
+import { Canvas, Button, Spinner } from 'datocms-react-ui'
 import { Client, buildClient } from '@datocms/cma-client-browser'
 import isSvg from 'is-svg'
 import { ImageList } from '../../components/ImageList/ImageList'
@@ -13,6 +13,7 @@ import {
   createSvgRecord,
   updateSvgRecord,
   deleteSvgRecord,
+  uploadSvgToMediaLibrary,
 } from '../../lib/recordHelpers'
 
 import * as styles from './PageScreen.module.css'
@@ -29,7 +30,7 @@ function recordToSvgUpload(record: SvgRecord): SvgUpload {
     raw: record.svg_content,
   }
 
-  if (record.svg_type === 'image' && record.media_upload) {
+  if (record.media_upload) {
     return {
       ...base,
       type: 'image' as const,
@@ -52,8 +53,8 @@ export default function PageScreen({ ctx }: Props) {
   const [filename, setFilename] = useState(defaultFilename)
   const [isUploading, setIsUploading] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
+  const [isSyncingAll, setIsSyncingAll] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [uploadToMediaLibrary, setUploadToMediaLibrary] = useState(false)
 
   const { currentUserAccessToken, environment } = ctx
   if (currentUserAccessToken) {
@@ -80,7 +81,7 @@ export default function PageScreen({ ctx }: Props) {
     loadSvgs()
   }, [pluginParameters.svgModelId, currentUserAccessToken])
 
-  async function saveRawSvg(rawSvg: string) {
+  async function saveSvg(rawSvg: string) {
     if (!rawSvg || !isSvg(rawSvg)) {
       return
     }
@@ -93,62 +94,20 @@ export default function PageScreen({ ctx }: Props) {
     try {
       setIsUploading(true)
 
-      const newRecord = await createSvgRecord(
+      const uploadId = await uploadSvgToMediaLibrary(
         currentUserAccessToken,
-        pluginParameters.svgModelId,
-        {
-          name: filename,
-          svg_content: rawSvg,
-          svg_type: 'svg',
-        },
+        rawSvg,
+        filename,
+        environment,
       )
 
-      if (newRecord) {
-        setSvgRecords([newRecord, ...svgRecords])
-        ctx.notice('SVG uploaded successfully!')
-      } else {
-        ctx.alert('Failed to create SVG record')
-      }
-    } finally {
-      setIsUploading(false)
-      setRawSvg('')
-      setFilename(defaultFilename)
-    }
-  }
-
-  async function saveSvgAsImage(rawSvg: string) {
-    if (!rawSvg || !isSvg(rawSvg)) {
-      return
-    }
-
-    if (!pluginParameters.svgModelId || !currentUserAccessToken) {
-      ctx.alert('SVG model not found. Please complete setup.')
-      return
-    }
-
-    const svgData = new Blob([rawSvg], { type: 'image/svg+xml' })
-    const svgFile = new File([svgData], filename)
-
-    try {
-      setIsUploading(true)
-
-      // Upload to media library
-      const svgUpload = await datoClient.uploads.createFromFileOrBlob({
-        fileOrBlob: svgFile,
-        filename: `${filename}.svg`,
-      })
-
-      // Create record with media library reference
       const newRecord = await createSvgRecord(
         currentUserAccessToken,
         pluginParameters.svgModelId,
         {
           name: filename,
           svg_content: rawSvg,
-          svg_type: 'image',
-          media_upload: {
-            upload_id: svgUpload.id,
-          },
+          media_upload: { upload_id: uploadId },
         },
       )
 
@@ -176,6 +135,52 @@ export default function PageScreen({ ctx }: Props) {
     }
   }
 
+  /** Sync media_upload (admin preview) from svg_content for all records. Use after editing SVG content in the CMS. */
+  async function syncAllPreviews() {
+    if (!pluginParameters.svgModelId || !currentUserAccessToken) {
+      ctx.alert('SVG model not found. Please complete setup.')
+      return
+    }
+    try {
+      setIsSyncingAll(true)
+      let synced = 0
+      for (const record of svgRecords) {
+        if (!record.svg_content || !isSvg(record.svg_content)) continue
+        try {
+          const uploadId = await uploadSvgToMediaLibrary(
+            currentUserAccessToken,
+            record.svg_content,
+            record.name || 'untitled',
+            environment,
+          )
+          if (record.media_upload) {
+            await datoClient.uploads.destroy(record.media_upload.upload_id)
+          }
+          const updated = await updateSvgRecord(
+            currentUserAccessToken,
+            record.id,
+            { media_upload: { upload_id: uploadId } },
+          )
+          if (updated) {
+            setSvgRecords((prev) =>
+              prev.map((r) => (r.id === record.id ? updated : r)),
+            )
+            synced += 1
+          }
+        } catch (err) {
+          console.error(`Failed to sync preview for ${record.name}:`, err)
+        }
+      }
+      if (synced > 0) {
+        ctx.notice(
+          synced === 1 ? '1 preview synced.' : `${synced} previews synced.`,
+        )
+      }
+    } finally {
+      setIsSyncingAll(false)
+    }
+  }
+
   async function deleteSvg(svg: SvgUpload) {
     if (!currentUserAccessToken) {
       return
@@ -187,8 +192,7 @@ export default function PageScreen({ ctx }: Props) {
       return
     }
 
-    // If it has a media upload, delete that first
-    if (record.svg_type === 'image' && record.media_upload) {
+    if (record.media_upload) {
       await removeImageSvg(record.media_upload.upload_id)
     }
 
@@ -222,10 +226,6 @@ export default function PageScreen({ ctx }: Props) {
   }
 
   async function openCustomModal(svg: SvgUpload) {
-    if (svg.type !== 'svg') {
-      return
-    }
-
     let item: null | (typeof svg & { deleted?: boolean }) = null
     item = (await ctx.openModal({
       id: customModalId,
@@ -239,7 +239,46 @@ export default function PageScreen({ ctx }: Props) {
       return
     }
 
-    if (item && item.filename !== svg.filename) {
+    if (!item) return
+
+    // If raw content changed, update record and re-sync media_upload (includes name)
+    if (item.raw !== svg.raw && isSvg(item.raw) && currentUserAccessToken) {
+      const record = svgRecords.find((r) => r.id === svg.id)
+      if (record) {
+        try {
+          setIsUploading(true)
+          const uploadId = await uploadSvgToMediaLibrary(
+            currentUserAccessToken,
+            item.raw,
+            item.filename || record.name,
+            environment,
+          )
+          if (record.media_upload) {
+            await datoClient.uploads.destroy(record.media_upload.upload_id)
+          }
+          const updatedRecord = await updateSvgRecord(
+            currentUserAccessToken,
+            record.id,
+            {
+              name: item.filename || record.name,
+              svg_content: item.raw,
+              media_upload: { upload_id: uploadId },
+            },
+          )
+          if (updatedRecord) {
+            setSvgRecords(
+              svgRecords.map((r) => (r.id === record.id ? updatedRecord : r)),
+            )
+            ctx.notice('SVG updated successfully!')
+          }
+        } finally {
+          setIsUploading(false)
+        }
+        return
+      }
+    }
+
+    if (item.filename !== svg.filename) {
       await renameSvg({ ...svg, filename: item.filename })
     }
   }
@@ -267,15 +306,6 @@ export default function PageScreen({ ctx }: Props) {
     }
   }
 
-  async function handleUpload(rawSvg: string) {
-    if (uploadToMediaLibrary) {
-      await saveSvgAsImage(rawSvg)
-      return
-    }
-
-    await saveRawSvg(rawSvg)
-  }
-
   // Convert records to SvgUpload format for ImageList component
   const svgUploads = svgRecords.map(recordToSvgUpload)
 
@@ -293,30 +323,31 @@ export default function PageScreen({ ctx }: Props) {
           {isUploading && <Spinner />}
 
           {!isUploading && (
-            <>
-              <Button
-                disabled={!isSvg(rawSvg)}
-                onClick={() => handleUpload(rawSvg)}
-                leftIcon={<Plus />}
-              >
-                Upload raw svg
-              </Button>
-              {currentUserAccessToken && (
-                <div>
-                  <SwitchField
-                    name="uploadToMedia"
-                    id="uploadToMedia"
-                    label="Upload SVG to the Media library"
-                    value={uploadToMediaLibrary}
-                    onChange={(newValue) => setUploadToMediaLibrary(newValue)}
-                  />
-                </div>
-              )}
-            </>
+            <Button
+              disabled={!isSvg(rawSvg)}
+              onClick={() => saveSvg(rawSvg)}
+              leftIcon={<Plus />}
+            >
+              Upload raw svg
+            </Button>
           )}
         </div>
 
         <h3 className="h2">Uploaded svgs</h3>
+
+        {!isLoading && svgRecords.length > 0 && (
+          <p className={styles.syncHint}>
+            Changed SVG content in the CMS?{' '}
+            <Button
+              buttonType="muted"
+              buttonSize="s"
+              onClick={syncAllPreviews}
+              disabled={isSyncingAll}
+            >
+              {isSyncingAll ? 'Syncing…' : 'Sync all previews'}
+            </Button>
+          </p>
+        )}
 
         {isLoading && <Spinner />}
         {!isLoading && svgUploads.length === 0 && <p>Nothing to show (yet)</p>}
