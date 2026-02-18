@@ -54,7 +54,13 @@ export default function FieldExtension({ ctx }: Props) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSyncingMedia, setIsSyncingMedia] = useState(false)
   // Local value for svg_content textarea to avoid cursor jumping on re-renders
-  const [localSvgContent, setLocalSvgContent] = useState(() => String(get(ctx.formValues, ctx.fieldPath) ?? get(ctx.formValues, 'svg_content') ?? ''))
+  const [localSvgContent, setLocalSvgContent] = useState(() =>
+    String(
+      get(ctx.formValues, ctx.fieldPath) ??
+        get(ctx.formValues, 'svg_content') ??
+        '',
+    ),
+  )
   const lastSetSvgContentRef = useRef<string | null>(null)
 
   const isSvgModelRecord =
@@ -75,8 +81,9 @@ export default function FieldExtension({ ctx }: Props) {
       ? mediaUploadFromForm.upload_id
       : null
   const recordNameFromForm: string = String(get(ctx.formValues, 'name') ?? '')
-  const effectiveSvgContent =
-    isSvgContentFieldOnSvgModel ? localSvgContent : svgContentFromForm
+  const effectiveSvgContent = isSvgContentFieldOnSvgModel
+    ? localSvgContent
+    : svgContentFromForm
   const canSyncMedia =
     isSvgModelRecord &&
     !!existingUploadId &&
