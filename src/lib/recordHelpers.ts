@@ -12,11 +12,10 @@ type ItemUpsertPayload = {
 }
 
 /**
- * If the payload is for the SVG model and has svg_content (and we can resolve media_upload),
- * updates the media file with the current SVG content (so admin preview stays in sync).
- * Call from onBeforeItemUpsert; does not block save on failure.
- * On update, the payload often only includes changed fields, so we fetch the current record
- * to get media_upload when it's missing.
+ * Updates the media file with svg_content only when the payload is explicitly for the
+ * SVG model (item_type in payload) and svg_content was sent. Called from onBeforeItemUpsert.
+ * We never fetch to discover item_type, so saving other records (e.g. parent with icon
+ * links) does not trigger sync.
  */
 export async function syncMediaOnItemUpsert(
   payload: ItemUpsertPayload,
@@ -25,6 +24,11 @@ export async function syncMediaOnItemUpsert(
   svgModelId: string | undefined,
 ): Promise<void> {
   if (!apiToken || !svgModelId) return
+
+  // Only run when payload explicitly identifies the record as our SVG model (no fetch)
+  const itemTypeId =
+    payload.data.relationships?.item_type?.data?.id ?? null
+  if (itemTypeId !== svgModelId) return
 
   const attrs = payload.data.attributes ?? {}
   const svgContent =
@@ -37,25 +41,16 @@ export async function syncMediaOnItemUpsert(
       ? mediaUpload.upload_id
       : null
   let name = typeof attrs.name === 'string' ? attrs.name : 'untitled'
-  let itemTypeId: string | null =
-    payload.data.relationships?.item_type?.data?.id ?? null
 
-  // On update, payload often has only changed fields; fetch current record for item_type, media_upload, name
-  if (payload.data.id) {
+  // For update, payload often has only changed fields; fetch only to get media_upload/name (we already know it's our model)
+  if (payload.data.id && !uploadId) {
     try {
       const client = buildClient({ apiToken, environment })
       const item = await client.items.find(payload.data.id)
       const itemData = item as any
-      if (!itemTypeId) {
-        const rel = itemData.relationships?.item_type?.data
-        itemTypeId = rel?.id ?? null
-      }
-      if (itemTypeId !== svgModelId) return
-      if (!uploadId) {
-        const currentAttrs = itemData.attributes ?? itemData
-        const mu = currentAttrs.media_upload
-        if (mu && typeof mu.upload_id === 'string') uploadId = mu.upload_id
-      }
+      const currentAttrs = itemData.attributes ?? itemData
+      const mu = currentAttrs.media_upload
+      if (mu && typeof mu.upload_id === 'string') uploadId = mu.upload_id
       if (name === 'untitled' && (itemData.attributes?.name ?? itemData.name))
         name = String(itemData.attributes?.name ?? itemData.name)
     } catch (err) {
@@ -67,7 +62,7 @@ export async function syncMediaOnItemUpsert(
     }
   }
 
-  if (!uploadId || itemTypeId !== svgModelId) return
+  if (!uploadId) return
 
   try {
     await updateExistingUploadWithSvgContent(
