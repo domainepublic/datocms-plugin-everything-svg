@@ -26,8 +26,7 @@ export async function syncMediaOnItemUpsert(
   if (!apiToken || !svgModelId) return
 
   // Only run when payload explicitly identifies the record as our SVG model (no fetch)
-  const itemTypeId =
-    payload.data.relationships?.item_type?.data?.id ?? null
+  const itemTypeId = payload.data.relationships?.item_type?.data?.id ?? null
   if (itemTypeId !== svgModelId) return
 
   const attrs = payload.data.attributes ?? {}
