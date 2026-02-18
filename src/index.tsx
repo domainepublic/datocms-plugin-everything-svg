@@ -197,6 +197,19 @@ connect({
     return render(<FieldExtension ctx={ctx} />)
   },
 
+  overrideFieldExtensions(field, ctx) {
+    const pluginParameters: GlobalParameters = ctx.plugin.attributes.parameters
+    const svgModelId = pluginParameters.svgModelId
+    if (
+      !svgModelId ||
+      ctx.itemType.id !== svgModelId ||
+      field.attributes?.api_key !== 'svg_content'
+    ) {
+      return undefined
+    }
+    return { editor: { id: fieldSettings.id } }
+  },
+
   // Render thumbnails in collections view
   buildItemPresentationInfo(item, ctx) {
     // We need to wrap it in an async IIFE because there's an `await ctx.loadFieldsUsingPlugin()` call later

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import get from 'lodash/get'
 import { RenderFieldExtensionCtx } from 'datocms-plugin-sdk'
-import { Canvas, Spinner } from 'datocms-react-ui'
+import { Canvas, Spinner, Button } from 'datocms-react-ui'
+import isSvg from 'is-svg'
 import { ImageList } from '../../components/ImageList/ImageList'
 import {
   FieldParameters,
@@ -10,7 +11,10 @@ import {
   SvgRecord,
 } from '../../lib/types'
 import { ImageViewer } from '../../components/ImageViewer/ImageViewer'
-import { loadSvgRecords } from '../../lib/recordHelpers'
+import {
+  loadSvgRecords,
+  updateExistingUploadWithSvgContent,
+} from '../../lib/recordHelpers'
 
 import * as styles from './FieldExtension.module.css'
 
@@ -26,7 +30,7 @@ function recordToSvgUpload(record: SvgRecord): SvgUpload {
     raw: record.svg_content,
   }
 
-  if (record.svg_type === 'image' && record.media_upload) {
+  if (record.media_upload) {
     return {
       ...base,
       type: 'image' as const,
@@ -48,6 +52,32 @@ export default function FieldExtension({ ctx }: Props) {
 
   const [svgRecords, setSvgRecords] = useState<SvgRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isSyncingMedia, setIsSyncingMedia] = useState(false)
+
+  const isSvgModelRecord =
+    ctx.itemType?.id && ctx.itemType.id === pluginParameters.svgModelId
+  const isSvgContentFieldOnSvgModel =
+    isSvgModelRecord && ctx.field?.attributes?.api_key === 'svg_content'
+  const svgContentFromForm: string = String(
+    get(ctx.formValues, ctx.fieldPath) ??
+      get(ctx.formValues, 'svg_content') ??
+      '',
+  )
+  const mediaUploadFromForm = get(ctx.formValues, 'media_upload') as
+    | { upload_id?: string }
+    | undefined
+  const existingUploadId =
+    mediaUploadFromForm?.upload_id &&
+    typeof mediaUploadFromForm.upload_id === 'string'
+      ? mediaUploadFromForm.upload_id
+      : null
+  const recordNameFromForm: string = String(get(ctx.formValues, 'name') ?? '')
+  const canSyncMedia =
+    isSvgModelRecord &&
+    !!existingUploadId &&
+    !!svgContentFromForm &&
+    isSvg(svgContentFromForm) &&
+    !!ctx.currentUserAccessToken
 
   // Load SVG records on mount
   useEffect(() => {
@@ -91,6 +121,28 @@ export default function FieldExtension({ ctx }: Props) {
     ctx.setFieldValue(ctx.fieldPath, '')
   }
 
+  async function handleSyncMedia() {
+    if (!canSyncMedia || !ctx.currentUserAccessToken) return
+    setIsSyncingMedia(true)
+    try {
+      await updateExistingUploadWithSvgContent(
+        ctx.currentUserAccessToken,
+        existingUploadId!,
+        svgContentFromForm,
+        recordNameFromForm || 'untitled',
+        ctx.environment,
+      )
+      ctx.notice('Media preview updated with current SVG content.')
+    } catch (err) {
+      console.error('Sync media failed:', err)
+      ctx.alert(
+        err instanceof Error ? err.message : 'Failed to update media preview.',
+      )
+    } finally {
+      setIsSyncingMedia(false)
+    }
+  }
+
   // Convert records to SvgUpload format
   const svgsFromRecords = svgRecords.map(recordToSvgUpload)
 
@@ -104,6 +156,38 @@ export default function FieldExtension({ ctx }: Props) {
     svgsFromRecords.length > 0 || pluginParameters.isSetupComplete
       ? svgsFromRecords
       : parameterSvgs || []
+
+  // SVG model's svg_content field: show textarea + Sync media button below (no sidebar)
+  if (isSvgContentFieldOnSvgModel) {
+    return (
+      <Canvas ctx={ctx}>
+        <div className={styles.svgContentEditor}>
+          <textarea
+            className={styles.svgContentTextarea}
+            value={fieldValue}
+            onChange={(e) => ctx.setFieldValue(ctx.fieldPath, e.target.value)}
+            spellCheck={false}
+            rows={12}
+          />
+          <div className={styles.syncMedia}>
+            <Button
+              buttonType="primary"
+              buttonSize="s"
+              onClick={handleSyncMedia}
+              disabled={!canSyncMedia || isSyncingMedia}
+            >
+              {isSyncingMedia ? 'Syncing…' : 'Sync media'}
+            </Button>
+            <span className={styles.syncMediaHint}>
+              {canSyncMedia
+                ? 'Updates the media preview with the SVG content above.'
+                : 'Add a media file in the Media Upload field first, then sync.'}
+            </span>
+          </div>
+        </div>
+      </Canvas>
+    )
+  }
 
   let content = <p>No SVG images to show</p>
 
@@ -123,5 +207,9 @@ export default function FieldExtension({ ctx }: Props) {
     content = <ImageList svgs={svgs} onClick={handleClick} size="s" />
   }
 
-  return <Canvas ctx={ctx}>{content}</Canvas>
+  return (
+    <Canvas ctx={ctx}>
+      <div className={styles.wrapper}>{content}</div>
+    </Canvas>
+  )
 }
