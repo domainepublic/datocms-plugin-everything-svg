@@ -1,9 +1,7 @@
 import {
   connect,
   ContentAreaSidebarItem,
-  FileFieldValue,
   IntentCtx,
-  type ItemPresentationInfo,
   MainNavigationTab,
   OnBootCtx,
   RenderConfigScreenCtx,
@@ -32,7 +30,6 @@ import {
   placementOptions,
   settingsAreaSidebarItemPlacement,
 } from './lib/constants'
-import setUpdatedSvgArray from './lib/setUpdatedSvgArray'
 import { checkIfModelExists } from './lib/modelHelpers'
 import { syncMediaOnItemUpsert } from './lib/recordHelpers'
 
@@ -72,9 +69,6 @@ connect({
         console.log('[Plugin Boot] Auto-marked setup as complete')
       }
     }
-
-    // Still sync old parameter-based SVGs if they exist
-    await setUpdatedSvgArray(ctx, pluginParameters.svgs)
   },
   renderConfigScreen(ctx: RenderConfigScreenCtx) {
     return render(<ConfigScreen ctx={ctx} />)
@@ -229,98 +223,5 @@ connect({
       pluginParameters.svgModelId,
     )
     return true
-  },
-
-  // Render thumbnails in collections view
-  buildItemPresentationInfo(item, ctx) {
-    // We need to wrap it in an async IIFE because there's an `await ctx.loadFieldsUsingPlugin()` call later
-    return (async () => {
-      // This hook doesn't know which model we're on, so we have to look up its ID from the record
-      const {
-        relationships: {
-          item_type: {
-            data: { id: currentItemTypeId },
-          },
-        },
-      } = item
-
-      // ItemType info for the current model
-      const currentItemType = ctx.itemTypes[currentItemTypeId]! // Plugin SDK will always load this
-
-      // Get the default preview image, if there is one
-      const defaultPreviewImageFieldId =
-        currentItemType.relationships?.image_preview_field.data?.id
-      const defaultPreviewImageFieldApiKey =
-        defaultPreviewImageFieldId &&
-        ctx.fields[defaultPreviewImageFieldId]?.attributes.api_key
-      const defaultPreviewImage = defaultPreviewImageFieldApiKey
-        ? (item.attributes[defaultPreviewImageFieldApiKey] as FileFieldValue)
-        : null
-
-      // Use the default preview image if there is one and skip all further processing
-      if (defaultPreviewImage?.upload_id) {
-        return undefined
-      }
-
-      // Get the record's title from its presentation attributes
-      const titleFieldId = currentItemType.relationships?.title_field.data?.id
-      const titleFieldApiKey =
-        titleFieldId && ctx.fields[titleFieldId]?.attributes.api_key
-      const title = titleFieldApiKey
-        ? (item.attributes[titleFieldApiKey] as string)
-        : ''
-
-      // Find fields using this plugin in this model
-      const fieldsWithAnyPlugin = await ctx.loadFieldsUsingPlugin()
-      const thisPluginId = ctx.plugin.id
-      const fieldsWithThisPlugin = fieldsWithAnyPlugin.filter(
-        (field) => field.attributes.appearance.editor === thisPluginId,
-      )
-
-      // Get all fields of the current model
-      const currentItemTypeFieldIds =
-        currentItemType.relationships.fields.data.map(({ id }) => id)
-
-      // Iterate through this model's plugin fields and find the first non-blank SVG
-      const firstValidSvgFieldData = (() => {
-        for (const { id } of fieldsWithThisPlugin) {
-          const fieldApiKey = ctx.fields[id]?.attributes.api_key
-
-          // Skip if this field isn't in the current model or doesn't have an API key
-          if (!currentItemTypeFieldIds.includes(id) || !fieldApiKey) {
-            continue
-          }
-
-          // Look up the field data from the current record
-          const fieldData = item.attributes[fieldApiKey]
-
-          // Try to trim it
-          const trimmedField =
-            typeof fieldData === 'string' ? fieldData.trim() : undefined
-
-          // Skip this field if it's blank
-          if (!trimmedField) {
-            continue
-          }
-
-          return trimmedField // Can be a trimmed SVG string or undefined
-        }
-      })()
-
-      // Fall back to the default preview if there's no SVG found
-      if (!firstValidSvgFieldData) {
-        return undefined
-      }
-
-      // Otherwise B64 encode it and return it as a data URL
-      const b64svg = firstValidSvgFieldData
-        ? btoa(firstValidSvgFieldData)
-        : undefined
-      const modifiedPreview: ItemPresentationInfo = {
-        title: title,
-        imageUrl: b64svg ? `data:image/svg+xml;base64,${b64svg}` : undefined,
-      }
-      return modifiedPreview
-    })()
   },
 })

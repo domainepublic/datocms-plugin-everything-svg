@@ -149,18 +149,10 @@ export async function loadSvgRecords(
   const client = buildClient(clientOptions)
 
   try {
-    const allRecords = await client.items.list({
-      page: {
-        limit: 500,
-      },
-      version: 'current', // Include draft/unpublished records
-    })
-
-    // Filter manually by item_type
-    const records = allRecords.filter((record: any) => {
-      const itemTypeId =
-        record.item_type?.id || record.relationships?.item_type?.data?.id
-      return itemTypeId === modelId
+    const records = await client.items.list({
+      filter: { type: modelId },
+      page: { limit: 500 },
+      version: 'current',
     })
 
     return records.map((record: any) => {
