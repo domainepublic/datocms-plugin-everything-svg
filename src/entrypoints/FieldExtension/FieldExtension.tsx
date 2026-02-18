@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import get from 'lodash/get'
 import { RenderFieldExtensionCtx } from 'datocms-plugin-sdk'
 import { Canvas, Spinner, Button } from 'datocms-react-ui'
@@ -53,6 +53,9 @@ export default function FieldExtension({ ctx }: Props) {
   const [svgRecords, setSvgRecords] = useState<SvgRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSyncingMedia, setIsSyncingMedia] = useState(false)
+  // Local value for svg_content textarea to avoid cursor jumping on re-renders
+  const [localSvgContent, setLocalSvgContent] = useState(() => String(get(ctx.formValues, ctx.fieldPath) ?? get(ctx.formValues, 'svg_content') ?? ''))
+  const lastSetSvgContentRef = useRef<string | null>(null)
 
   const isSvgModelRecord =
     ctx.itemType?.id && ctx.itemType.id === pluginParameters.svgModelId
@@ -72,12 +75,22 @@ export default function FieldExtension({ ctx }: Props) {
       ? mediaUploadFromForm.upload_id
       : null
   const recordNameFromForm: string = String(get(ctx.formValues, 'name') ?? '')
+  const effectiveSvgContent =
+    isSvgContentFieldOnSvgModel ? localSvgContent : svgContentFromForm
   const canSyncMedia =
     isSvgModelRecord &&
     !!existingUploadId &&
-    !!svgContentFromForm &&
-    isSvg(svgContentFromForm) &&
+    !!effectiveSvgContent &&
+    isSvg(effectiveSvgContent) &&
     !!ctx.currentUserAccessToken
+
+  // Sync local textarea value from form when it changes externally (e.g. record switch)
+  useEffect(() => {
+    if (svgContentFromForm !== lastSetSvgContentRef.current) {
+      lastSetSvgContentRef.current = svgContentFromForm
+      setLocalSvgContent(svgContentFromForm)
+    }
+  }, [svgContentFromForm])
 
   // Load SVG records on mount
   useEffect(() => {
@@ -121,6 +134,12 @@ export default function FieldExtension({ ctx }: Props) {
     ctx.setFieldValue(ctx.fieldPath, '')
   }
 
+  function handleSvgContentChange(value: string) {
+    setLocalSvgContent(value)
+    lastSetSvgContentRef.current = value
+    ctx.setFieldValue(ctx.fieldPath, value)
+  }
+
   async function handleSyncMedia() {
     if (!canSyncMedia || !ctx.currentUserAccessToken) return
     setIsSyncingMedia(true)
@@ -128,7 +147,7 @@ export default function FieldExtension({ ctx }: Props) {
       await updateExistingUploadWithSvgContent(
         ctx.currentUserAccessToken,
         existingUploadId!,
-        svgContentFromForm,
+        effectiveSvgContent,
         recordNameFromForm || 'untitled',
         ctx.environment,
       )
@@ -157,15 +176,15 @@ export default function FieldExtension({ ctx }: Props) {
       ? svgsFromRecords
       : parameterSvgs || []
 
-  // SVG model's svg_content field: show textarea + Sync media button below (no sidebar)
+  // SVG model's svg_content field: show default-style textarea + Sync media below
   if (isSvgContentFieldOnSvgModel) {
     return (
       <Canvas ctx={ctx}>
         <div className={styles.svgContentEditor}>
           <textarea
             className={styles.svgContentTextarea}
-            value={fieldValue}
-            onChange={(e) => ctx.setFieldValue(ctx.fieldPath, e.target.value)}
+            value={localSvgContent}
+            onChange={(e) => handleSvgContentChange(e.target.value)}
             spellCheck={false}
             rows={12}
           />

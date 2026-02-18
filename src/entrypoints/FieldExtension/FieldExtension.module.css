@@ -15,22 +15,28 @@
 .svgContentEditor {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-m);
+  gap: var(--spacing-s);
 }
 
+/* Default-style multi-line textarea: natural height from rows, no min-height so it isn't cropped */
 .svgContentTextarea {
   width: 100%;
+  box-sizing: border-box;
   font-family: var(--font-mono);
   font-size: 13px;
+  line-height: 1.4;
   padding: var(--spacing-s);
   resize: vertical;
-  min-height: 200px;
+  flex-shrink: 0;
 }
 
+/* Compact row: button + hint inline so it doesn't take vertical space from the textarea */
 .syncMedia {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-s);
+  margin-top: var(--spacing-xs);
 }
 
 .syncMediaHint {
