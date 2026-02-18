@@ -41,18 +41,6 @@ export async function createSvgModel(apiToken: string, environment?: string) {
       },
     } as any)
 
-    // Create the svg_type field
-    await client.fields.create(itemType.id, {
-      label: 'Type',
-      api_key: 'svg_type',
-      field_type: 'string',
-      validators: {
-        enum: {
-          values: ['svg', 'image'],
-        },
-      },
-    } as any)
-
     // Create the media_upload field (optional asset field)
     await client.fields.create(itemType.id, {
       label: 'Media Upload',
@@ -108,10 +96,8 @@ export async function migrateSvgsToRecords(
         item_type: { type: 'item_type', id: modelId },
         name: svg.filename || 'Untitled SVG',
         svg_content: svg.raw,
-        svg_type: svg.type,
       }
 
-      // If it's an image type with media library reference, include the upload
       if (svg.type === 'image' && svg.imageId) {
         recordData.media_upload = {
           upload_id: svg.imageId,

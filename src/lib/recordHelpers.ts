@@ -1,6 +1,60 @@
 import { buildClient } from '@datocms/cma-client-browser'
 import type { SvgRecord } from './types'
 
+/** Upload raw SVG string to DatoCMS media library; returns the upload id for media_upload field. */
+export async function uploadSvgToMediaLibrary(
+  apiToken: string,
+  rawSvg: string,
+  filename: string,
+  environment?: string,
+): Promise<string> {
+  const clientOptions: { apiToken: string; environment?: string } = {
+    apiToken,
+  }
+  if (environment) {
+    clientOptions.environment = environment
+  }
+  const client = buildClient(clientOptions)
+  const svgData = new Blob([rawSvg], { type: 'image/svg+xml' })
+  const svgFile = new File([svgData], filename)
+  const upload = await client.uploads.createFromFileOrBlob({
+    fileOrBlob: svgFile,
+    filename: `${filename}.svg`,
+  })
+  return upload.id
+}
+
+/**
+ * Update an existing upload with new SVG content (same upload id, file content replaced).
+ * Uses a temp upload then updates the existing one with that path so the media is updated in place.
+ */
+export async function updateExistingUploadWithSvgContent(
+  apiToken: string,
+  uploadId: string,
+  rawSvg: string,
+  filename: string,
+  environment?: string,
+): Promise<void> {
+  const clientOptions: { apiToken: string; environment?: string } = {
+    apiToken,
+  }
+  if (environment) {
+    clientOptions.environment = environment
+  }
+  const client = buildClient(clientOptions)
+  const svgData = new Blob([rawSvg], { type: 'image/svg+xml' })
+  const svgFile = new File([svgData], filename)
+  const tempUpload = await client.uploads.createFromFileOrBlob({
+    fileOrBlob: svgFile,
+    filename: `${filename}.svg`,
+  })
+  try {
+    await client.uploads.update(uploadId, { path: tempUpload.path })
+  } finally {
+    await client.uploads.destroy(tempUpload.id)
+  }
+}
+
 export async function loadSvgRecords(
   apiToken: string,
   modelId: string,
@@ -37,7 +91,6 @@ export async function loadSvgRecords(
         id: record.id as string,
         name: (attrs.name as string) || 'Untitled',
         svg_content: (attrs.svg_content as string) || '',
-        svg_type: (attrs.svg_type as 'svg' | 'image') || 'svg',
       }
 
       const mediaUpload = attrs.media_upload
@@ -62,7 +115,6 @@ export async function createSvgRecord(
   data: {
     name: string
     svg_content: string
-    svg_type: 'svg' | 'image'
     media_upload?: { upload_id: string }
   },
 ): Promise<SvgRecord | null> {
@@ -78,7 +130,6 @@ export async function createSvgRecord(
       id: (record as any).id as string,
       name: (record as any).name as string,
       svg_content: (record as any).svg_content as string,
-      svg_type: (record as any).svg_type as 'svg' | 'image',
     }
 
     const mediaUpload = (record as any).media_upload
@@ -102,7 +153,6 @@ export async function updateSvgRecord(
   data: Partial<{
     name: string
     svg_content: string
-    svg_type: 'svg' | 'image'
     media_upload: { upload_id: string }
   }>,
 ): Promise<SvgRecord | null> {
@@ -115,7 +165,6 @@ export async function updateSvgRecord(
       id: (record as any).id as string,
       name: (record as any).name as string,
       svg_content: (record as any).svg_content as string,
-      svg_type: (record as any).svg_type as 'svg' | 'image',
     }
 
     const mediaUpload = (record as any).media_upload

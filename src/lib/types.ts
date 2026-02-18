@@ -75,7 +75,6 @@ export type SvgRecord = {
   id: string
   name: string
   svg_content: string
-  svg_type: 'svg' | 'image'
   media_upload?: {
     upload_id: string
     url: string
