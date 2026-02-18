@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 
 import { RenderConfigScreenCtx } from 'datocms-plugin-sdk'
+import { buildClient } from '@datocms/cma-client-browser'
 import {
   Canvas,
   Form,
@@ -19,6 +20,8 @@ import { pageTypeOptions, placementOptions } from '../../lib/constants'
 import { getMenuItemPlacements } from '../../lib/helpers'
 import { migrateSvgsToRecords, createSvgModel } from '../../lib/modelHelpers'
 
+type ItemTypeOption = { value: string; label: string }
+
 type Props = {
   ctx: RenderConfigScreenCtx
 }
@@ -27,6 +30,31 @@ export default function ConfigScreen({ ctx }: Props) {
   const pluginParameters: GlobalParameters = ctx.plugin.attributes.parameters
   const [isMigrating, setIsMigrating] = useState(false)
   const [isCreatingModel, setIsCreatingModel] = useState(false)
+  const [itemTypeOptions, setItemTypeOptions] = useState<ItemTypeOption[]>([])
+  const [loadingItemTypes, setLoadingItemTypes] = useState(true)
+
+  useEffect(() => {
+    if (!ctx.currentUserAccessToken) {
+      setLoadingItemTypes(false)
+      return
+    }
+    const client = buildClient({
+      apiToken: ctx.currentUserAccessToken,
+      environment: ctx.environment,
+    })
+    client.itemTypes
+      .list()
+      .then((list) => {
+        setItemTypeOptions(
+          list.map((it: { id: string; name: string }) => ({
+            value: it.id,
+            label: it.name,
+          })),
+        )
+      })
+      .catch(() => setItemTypeOptions([]))
+      .finally(() => setLoadingItemTypes(false))
+  }, [ctx.currentUserAccessToken, ctx.environment])
 
   const selectedPageType = pluginParameters?.pageType || pageTypeOptions[0]
   const selectedPlacement = pluginParameters?.placement || placementOptions[0]
@@ -158,6 +186,10 @@ export default function ConfigScreen({ ctx }: Props) {
         isSetupComplete: true,
       })
 
+      setItemTypeOptions((prev) => [
+        ...prev,
+        { value: model.id, label: (model as { name: string }).name },
+      ])
       ctx.notice('SVG model created successfully!')
     } catch (err) {
       console.error('Error creating model:', err)
@@ -240,7 +272,7 @@ export default function ConfigScreen({ ctx }: Props) {
                 <li>
                   Create model: Name = "Plugin SVG", API key = "plugin_svg"
                 </li>
-                <li>Add 4 fields: name, svg_content, svg_type, media_upload</li>
+                <li>Add 3 fields: name, svg_content, media_upload</li>
                 <li>
                   <Button
                     buttonSize="s"
@@ -270,6 +302,9 @@ export default function ConfigScreen({ ctx }: Props) {
     )
   }
 
+  const selectedSvgModel =
+    itemTypeOptions.find((o) => o.value === pluginParameters.svgModelId) ?? null
+
   // Normal config screen after setup is complete
   return (
     <Canvas ctx={ctx}>
@@ -277,6 +312,45 @@ export default function ConfigScreen({ ctx }: Props) {
 
       <Form>
         <FieldGroup>
+          <SelectField
+            name="svgModelId"
+            id="svgModelId"
+            label="SVG / Icon model"
+            hint="Model used to store SVGs. The “Sync media” sidebar and plugin page use this model."
+            value={selectedSvgModel}
+            selectInputProps={{
+              options: itemTypeOptions,
+              isDisabled: loadingItemTypes,
+              placeholder: loadingItemTypes
+                ? 'Loading models…'
+                : 'Select model',
+            }}
+            onChange={(newValue) => {
+              const option = newValue as ItemTypeOption | null
+              saveSettings({
+                svgModelId: option?.value,
+                isSetupComplete: !!option?.value,
+              })
+            }}
+          />
+          {!loadingItemTypes && (
+            <Button
+              buttonType="muted"
+              buttonSize="s"
+              onClick={handleCreateModel}
+              disabled={isCreatingModel}
+            >
+              {isCreatingModel ? (
+                <>
+                  <Spinner size={16} />
+                  <span style={{ marginLeft: '0.5rem' }}>Creating…</span>
+                </>
+              ) : (
+                'Create new SVG model'
+              )}
+            </Button>
+          )}
+
           <SelectField
             name="pageType"
             id="pageType"
