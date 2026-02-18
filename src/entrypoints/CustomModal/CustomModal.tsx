@@ -18,6 +18,10 @@ export default function CustomModal({ ctx }: Props) {
     ctx.resolve(returnValue)
   }
 
+  function handleSave(returnValue: SvgUpload) {
+    ctx.resolve(returnValue)
+  }
+
   return (
     <Canvas ctx={ctx}>
       {modalParameters.rawSvg ? (
@@ -25,6 +29,7 @@ export default function CustomModal({ ctx }: Props) {
           svg={modalParameters.rawSvg}
           onDelete={handleDelete}
           onRename={handleRename}
+          onSave={handleSave}
         />
       ) : (
         <p>Nothing to show here</p>

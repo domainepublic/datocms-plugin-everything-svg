@@ -34,20 +34,19 @@ export function ImageViewer({
   onClick,
 }: ImageViewerProps) {
   const [showDropdown, setShowDropdown] = useState(false)
-  let imageElement = null
+  let imageElement: JSX.Element | null = null
   const Component = onClick ? 'button' : component
   const dropdownRef = useOutsideClick(() => setShowDropdown(false))
 
-  if (image.type === 'svg') {
+  // Always preview the raw SVG so the list shows crisp vector graphics
+  if (image.raw) {
     imageElement = (
       <div
         className={styles.raw}
         dangerouslySetInnerHTML={{ __html: image.raw }}
       />
     )
-  }
-
-  if (image.type === 'image') {
+  } else if (image.type === 'image') {
     imageElement = <img src={image.url} alt={image.filename} />
   }
 
@@ -94,7 +93,7 @@ export function ImageViewer({
 
           {showDropdown && (
             <div className={styles.dropdownMenu}>
-              {image.type === 'svg' && onShowRaw && (
+              {onShowRaw && (
                 <button
                   type="button"
                   className={styles.dropdownMenuButton}
@@ -129,8 +128,7 @@ export function ImageViewer({
       {showTag && (
         <div className={styles.tag}>
           <p className={classNames(styles.tagText, 'body--small')}>
-            {image.type === 'svg' && 'Raw'}{' '}
-            {image.type === 'image' && 'Raw + Image'}
+            {image.type === 'image' ? 'Preview' : 'Raw'}
           </p>
         </div>
       )}
