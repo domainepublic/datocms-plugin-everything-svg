@@ -34,6 +34,7 @@ import {
 } from './lib/constants'
 import setUpdatedSvgArray from './lib/setUpdatedSvgArray'
 import { checkIfModelExists } from './lib/modelHelpers'
+import { syncMediaOnItemUpsert } from './lib/recordHelpers'
 
 import './styles/index.css'
 
@@ -208,6 +209,26 @@ connect({
       return undefined
     }
     return { editor: { id: fieldSettings.id } }
+  },
+
+  async onBeforeItemUpsert(payload, ctx) {
+    const pluginParameters: GlobalParameters = ctx.plugin.attributes.parameters
+    if (!pluginParameters.isSetupComplete || !pluginParameters.svgModelId) {
+      return true
+    }
+    await syncMediaOnItemUpsert(
+      payload as {
+        data: {
+          id?: string
+          attributes?: Record<string, unknown>
+          relationships?: { item_type?: { data: { id: string } } }
+        }
+      },
+      ctx.currentUserAccessToken,
+      ctx.environment,
+      pluginParameters.svgModelId,
+    )
+    return true
   },
 
   // Render thumbnails in collections view
